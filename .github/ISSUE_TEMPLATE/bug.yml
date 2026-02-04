@@ -1,0 +1,45 @@
+name: Bug
+description: 버그 리포트 템플릿
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    attributes:
+      label: 버그 설명
+      description: 어떤 문제가 발생했는지 명확하게 작성해주세요.
+      placeholder: |
+        예) 수정 제안을 두 명의 관리자가 동시에 승인하면 데이터가 중복 반영됨
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 재현 방법
+      description: 버그를 재현할 수 있는 단계별 방법을 작성해주세요.
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 기대 결과
+      placeholder: |
+        예) 하나의 수정 제안은 한 번만 승인되어야 함
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 실제 결과
+      placeholder: |
+        예) 동일한 수정 제안이 두 번 반영됨
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: 로그 / 스크린샷
+      description: 에러 로그나 관련 스크린샷이 있다면 첨부해주세요.
