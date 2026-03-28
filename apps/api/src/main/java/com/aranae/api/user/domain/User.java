@@ -17,9 +17,41 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false)
     private String nickname;
 
+    private String profileImageUrl;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String role; // USER, ADMIN (추후 enum으로 확장 가능)
+    private UserRole role;
 
     protected User() {
+    }
+
+    public static User create(String email, String nickname, String profileImageUrl) {
+        User user = new User();
+        user.email = email;
+        user.nickname = nickname;
+        user.profileImageUrl = profileImageUrl;
+        user.role = UserRole.USER;
+        return user;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getNickname() {
+        return nickname;
+    }
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
+    }
+
+    public UserRole getRole() {
+        return role;
     }
 }

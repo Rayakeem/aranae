@@ -1,118 +1,226 @@
-# ERD (초안)
+# ERD
 
-## 1. 목표
-아라내는 팬이 연예인 패션 정보를 **등록/수정 제안(EditProposal)**하고, 관리자가 **승인/반려**하여 실제 데이터에 반영하는 서비스다.  
-따라서 DB는 다음을 보장해야 한다.
+## 1. 설계 방향
 
-- 제안(PENDING)과 실제 데이터(celebrities/items/celebrity_items)를 분리한다.
-- 승인/반려가 발생하면 **누가/언제/무슨 결정**을 했는지 기록이 남는다.
-- 중복 데이터/중복 제안을 방지한다.
+아라내는 **나무위키처럼 누구나 즉시 정보를 등록·수정**할 수 있는 서비스다.
+관리자 승인 없이 팬이 직접 데이터를 반영하되, 잘못된 수정을 되돌릴 수 있도록 **편집 이력**을 남긴다.
+
+### 핵심 원칙
+
+- 로그인한 사용자라면 누구나 데이터를 직접 생성·수정·삭제할 수 있다.
+- 모든 쓰기 작업은 `edit_histories`에 변경 전/후 스냅샷을 기록한다.
+- 이력을 활용해 관리자 또는 서버가 이전 상태로 롤백할 수 있다.
+- 비로그인 사용자는 조회만 가능하다.
 
 ---
 
-## 2. 엔티티 요약
+## 2. 다이어그램
+
+```mermaid
+erDiagram
+    users {
+        bigint id PK
+        varchar email "UNIQUE"
+        varchar nickname
+        varchar profile_image_url
+        varchar role "USER / ADMIN"
+        datetime created_at
+        datetime updated_at
+    }
+
+    celebrities {
+        bigint id PK
+        varchar name
+        varchar group_name
+        varchar job_type "ACTOR / SINGER / ENTERTAINER / YOUTUBER / MODEL"
+        int height
+        varchar profile_image_key
+        datetime created_at
+        datetime updated_at
+    }
+
+    items {
+        bigint id PK
+        varchar name
+        varchar brand
+        varchar category
+        int price
+        varchar image_key
+        varchar purchase_url "일반 구매 링크"
+        varchar affiliate_url "어필리에이트 링크 (수익)"
+        varchar unique_key "UNIQUE"
+        datetime created_at
+        datetime updated_at
+    }
+
+    posts {
+        bigint id PK
+        varchar title "포스트 제목"
+        bigint celebrity_id FK
+        varchar celebrity_image_key "대표 이미지 S3 키"
+        varchar source_channel "원본 출처 채널명"
+        varchar source_url
+        json tags "해시태그 목록 (최대 3개)"
+        bigint created_by FK "nullable until Auth"
+        datetime created_at
+        datetime updated_at
+    }
+
+    post_items {
+        bigint id PK
+        bigint post_id FK
+        bigint item_id FK
+    }
+
+    edit_histories {
+        bigint id PK
+        bigint editor_id FK
+        varchar target_type "CELEBRITY / ITEM / CELEBRITY_ITEM"
+        bigint target_id
+        varchar action "CREATE / UPDATE / DELETE / ROLLBACK"
+        json before_data "변경 전 스냅샷 (CREATE면 null)"
+        json after_data "변경 후 스냅샷 (DELETE면 null)"
+        datetime created_at
+    }
+
+    users ||--o{ edit_histories : "편집자"
+    users ||--o{ posts : "게시자"
+    celebrities ||--o{ posts : ""
+    posts ||--o{ post_items : ""
+    items ||--o{ post_items : ""
+```
+
+---
+
+## 3. 테이블 상세
 
 ### users
-- 사용자(팬/관리자)
-- `role`: USER / ADMIN
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| email | VARCHAR(255) | NOT NULL, UNIQUE | OAuth 이메일 |
+| nickname | VARCHAR(100) | NOT NULL | 표시 이름 |
+| profile_image_url | VARCHAR(500) | | 프로필 이미지 |
+| role | VARCHAR(20) | NOT NULL | USER / ADMIN |
+| created_at | DATETIME | NOT NULL | |
+| updated_at | DATETIME | NOT NULL | |
 
 ### celebrities
-- 연예인 정보
-- `group_name`: 아이돌 그룹명(선택)
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| name | VARCHAR(100) | NOT NULL | 연예인 이름 |
+| group_name | VARCHAR(100) | | 소속 그룹명 |
+| job_type | VARCHAR(20) | | ACTOR / SINGER / ENTERTAINER / YOUTUBER / MODEL |
+| height | INT | | 키 (cm) |
+| profile_image_key | VARCHAR(500) | | S3 오브젝트 키 |
+| created_at | DATETIME | NOT NULL | |
+| updated_at | DATETIME | NOT NULL | |
 
 ### items
-- 패션 아이템 정보
-- `unique_key`: 아이템 중복 판단용 키(아래 “중복 방지 전략” 참고)
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| name | VARCHAR(200) | NOT NULL | 상품명 |
+| brand | VARCHAR(100) | | 브랜드 |
+| category | VARCHAR(50) | | 카테고리 |
+| price | INT | | 가격 (원) |
+| image_key | VARCHAR(500) | | S3 오브젝트 키 |
+| purchase_url | VARCHAR(1000) | | 일반 구매 링크 |
+| affiliate_url | VARCHAR(1000) | | 어필리에이트 링크 (수익용) |
+| unique_key | VARCHAR(400) | NOT NULL, UNIQUE | 중복 방지 키 |
+| created_at | DATETIME | NOT NULL | |
+| updated_at | DATETIME | NOT NULL | |
 
-### celebrity_items
-- 연예인-아이템 연결(N:M)
-- 착장 메타 정보(채널/콘텐츠 종류/프로그램명 등)를 포함
+### posts
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| title | VARCHAR(200) | NOT NULL | 포스트 제목 |
+| celebrity_id | BIGINT | NOT NULL, FK | |
+| celebrity_image_key | VARCHAR(500) | | 대표 이미지 S3 키 |
+| source_channel | VARCHAR(100) | | 원본 출처 채널명 |
+| source_url | VARCHAR(1000) | | 원본 출처 URL |
+| tags | JSON | | 해시태그 목록 (최대 3개) |
+| created_by | BIGINT | FK (nullable) | Auth 구현 전까지 nullable |
+| created_at | DATETIME | NOT NULL | |
+| updated_at | DATETIME | NOT NULL | |
 
-### edit_proposals
-- 팬이 올리는 등록/수정 제안 데이터
-- `proposal_type`: CREATE / UPDATE
-- `target_type`: CELEBRITY / ITEM / CELEBRITY_ITEM
-- `status`: PENDING / APPROVED / REJECTED
-- `proposed_data`: 제안 내용(JSON)
-- `dedup_key`: 대기중(PENDING) 중복 제안 방지 키
+### post_items
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| post_id | BIGINT | NOT NULL, FK | |
+| item_id | BIGINT | NOT NULL, FK | |
 
-### approval_histories
-- 관리자의 승인/반려 기록(감사 로그)
-- 제안 1건당 승인/반려는 1번만 허용
+**UNIQUE**: `(post_id, item_id)`
 
----
-
-## 3. 핵심 제약조건(Constraints)
-
-### 3.1 유니크(중복 방지)
-- `users.email` UNIQUE
-- `celebrities.name` UNIQUE
-- `items.unique_key` UNIQUE  
-  - 동일 아이템을 “다른 id로” 중복 생성하는 것을 방지
-- `celebrity_items(celebrity_id, item_id)` UNIQUE  
-  - 동일 연예인-아이템 연결의 중복 생성 방지(MVP에서는 대표 착장 1개만 유지)
-- `approval_histories.edit_proposal_id` UNIQUE  
-  - 제안 1건당 승인/반려는 단 1회만 가능
-
-### 3.2 NOT NULL
-- 모든 PK/FK 및 상태값은 NOT NULL을 기본으로 한다.
-- `edit_proposals.proposed_data`, `edit_proposals.dedup_key`는 NOT NULL
-
----
-
-## 4. 중복 방지 전략 (중요)
-
-### 4.1 아이템 중복 방지: items.unique_key
-DB의 PK(id)만으로는 “같은 아이템인지” 판단할 수 없다.  
-따라서 아이템을 식별할 수 있는 `unique_key`를 생성하여 UNIQUE 제약으로 중복을 방지한다.
-
-- 예시 생성 규칙(앱 레벨):
-  - `lower(brand) + "|" + normalize(name) + "|" + lower(category)`
-- 예시:
-  - `nike|air-force-1-low-white|shoes`
-
-### 4.2 대기중 중복 제안 방지: edit_proposals.dedup_key
-동일한 내용의 제안이 PENDING 상태로 여러 개 쌓이지 않도록 `dedup_key`를 사용한다.
-
-- 예시:
-  - ITEM CREATE: `ITEM|CREATE|nike|air-force-1-low-white|shoes`
-  - CELEBRITY_ITEM CREATE: `CELEBRITY_ITEM|CREATE|celebrity=3|item=10`
-
-서버는 제안 생성 시 `status=PENDING` + `dedup_key`가 이미 존재하면 생성 요청을 거절한다.
+### edit_histories
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | BIGINT | PK, AUTO_INCREMENT | |
+| editor_id | BIGINT | NOT NULL, FK | 편집한 사용자 |
+| target_type | VARCHAR(50) | NOT NULL | CELEBRITY / ITEM / CELEBRITY_ITEM |
+| target_id | BIGINT | NOT NULL | 변경된 레코드 PK |
+| action | VARCHAR(20) | NOT NULL | CREATE / UPDATE / DELETE / ROLLBACK |
+| before_data | JSON | | 변경 전 스냅샷 (CREATE면 null) |
+| after_data | JSON | | 변경 후 스냅샷 (DELETE면 null) |
+| created_at | DATETIME | NOT NULL | |
 
 ---
 
-## 5. 승인/반영 규칙 (Workflow)
+## 4. 유니크 제약 정리
 
-### 5.1 제안 생성
-- 유저는 실제 테이블(celebrities/items/celebrity_items)을 직접 수정할 수 없다.
-- 모든 등록/수정은 `edit_proposals`에 저장된다.
-  - 최초 등록도 `proposal_type=CREATE`로 처리한다.
-
-### 5.2 승인/반려 처리 (트랜잭션)
-관리자가 제안을 승인/반려할 때 서버는 하나의 트랜잭션에서 다음을 수행한다.
-
-1) `edit_proposals.status`를 `PENDING → APPROVED/REJECTED`로 변경  
-2) `approval_histories`에 기록 생성(제안당 1회만)  
-3) 승인(APPROVED)인 경우에만 `proposed_data`를 실제 테이블에 반영  
-   - target_type에 따라 분기:
-     - ITEM + CREATE/UPDATE → items insert/update
-     - CELEBRITY + CREATE/UPDATE → celebrities insert/update
-     - CELEBRITY_ITEM + CREATE → celebrity_items insert
-
-실패 시 롤백하여 상태/로그/실데이터 불일치가 발생하지 않도록 한다.
+| 테이블 | 유니크 대상 | 목적 |
+|---|---|---|
+| users | email | 계정 중복 방지 |
+| items | unique_key | 동일 상품 중복 등록 방지 |
+| post_items | (post_id, item_id) | 포스트 내 아이템 중복 방지 |
 
 ---
 
-## 6. proposed_data 예시
+## 5. 중복 방지 전략
 
-### 6.1 ITEM CREATE 예시
-```json
-{
-  "name": "Air Force 1 Low White",
-  "brand": "Nike",
-  "category": "Shoes",
-  "price": 129000,
-  "image_key": "items/nike/af1-white.png",
-  "purchase_url": "https://example.com/item/123"
-}
+### 5.1 아이템 중복 방지: items.unique_key
+
+- **생성 규칙**: `lower(brand) + "|" + normalize(name) + "|" + lower(category)`
+- **normalize**: trim → 소문자 → 공백을 `-`로 치환
+- **예시**: `nike|air-force-1-low-white|shoes`
+
+### 5.2 착장 중복 방지: celebrity_items UNIQUE
+
+같은 연예인이 같은 아이템을 **다른 콘텐츠·회차에서** 착용하는 것은 허용.
+동일한 콘텐츠·회차에 같은 아이템이 중복 등록되는 것만 방지.
+
+---
+
+## 6. 수익 구조
+
+| 방식 | 필드 | 설명 |
+|---|---|---|
+| 구글 애드센스 | — | 페이지 광고 배너 |
+| 어필리에이트 | `items.affiliate_url` | 쿠팡파트너스, 네이버 쇼핑파트너 등 클릭당 수익 |
+
+`affiliate_url`은 등록 시 선택 입력. 없으면 `purchase_url`로 대체 표시.
+
+---
+
+## 7. 편집 이력 및 롤백 워크플로우
+
+```
+사용자 → API 요청 → 실제 테이블 즉시 반영
+                      ↓
+             edit_histories에 기록 (before_data / after_data)
+```
+
+롤백: 관리자가 특정 이력의 `before_data`를 실제 테이블에 덮어씀 → 롤백 자체도 ROLLBACK 액션으로 기록.
+
+---
+
+## 8. 삭제된 설계
+
+| 기존 | 제거 이유 |
+|---|---|
+| `edit_proposals` | 위키 방식으로 전환 |
+| `approval_histories` | 승인 워크플로우 제거 |
+| `celebrity_items (celebrity_id, item_id) UNIQUE` | 동일 아이템을 여러 콘텐츠에서 착용 허용 |

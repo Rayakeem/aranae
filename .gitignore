@@ -1,0 +1,16 @@
+# 환경변수 (시크릿 키 포함 - 절대 커밋하면 안 됨)
+infra/docker/.env
+
+# Gradle 빌드 결과물
+apps/api/build/
+apps/api/.gradle/
+
+# IntelliJ
+.idea/
+*.iml
+
+# OS
+.DS_Store
+
+# Claude
+.claudeignore
