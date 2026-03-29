@@ -38,6 +38,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // /me는 반드시 로그인 필요 (GET /** 보다 먼저 선언해야 적용됨)
+                        .requestMatchers("/me").authenticated()
                         // 조회는 누구나 가능
                         .requestMatchers(HttpMethod.GET, "/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()

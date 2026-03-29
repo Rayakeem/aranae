@@ -11,6 +11,13 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // 401 - 로그인 필요
+    @ExceptionHandler(UnauthorizedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponse handleUnauthorizedException(UnauthorizedException e) {
+        return new ErrorResponse(401, e.getMessage());
+    }
+
     // 404 - 존재하지 않는 리소스
     @ExceptionHandler(NotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
